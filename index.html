@@ -58,6 +58,10 @@
             width: 100%;
             height: 400px;
         }
+        .audio-player {
+            width: 100%;
+            margin-top: 20px;
+        }
         .video-metadata {
             margin-top: 20px;
         }
@@ -85,6 +89,13 @@
         .playlist-item:hover {
             background-color: #f0f0f0;
         }
+        .playlist-item.audio {
+            color: #1a73e8;
+        }
+        .playlist-item.active {
+            background-color: #d4edda;
+            font-weight: 500;
+        }
     </style>
 </head>
 <body>
@@ -97,9 +108,13 @@
             <video id="video-player" class="video-player" controls>
                 <source id="video-source" type="video/mp4">
             </video>
+            <audio id="audio-player" class="audio-player" controls style="display: none;">
+                <source id="audio-source" type="audio/mp3">
+            </audio>
             <div class="video-metadata">
-                <h5 id="video-title">Video Title</h5>
-                <p id="video-duration">Duration: 00:00</p>
+                <h5 id="media-title">Media Title</h5>
+                <p id="media-duration">Duration: 00:00</p>
+                <p id="media-type" style="font-style: italic; color: #666;"></p>
             </div>
         </div>
         <div class="playlist">
@@ -118,8 +133,11 @@
     <script>
         const videoPlayer = document.getElementById('video-player');
         const videoSource = document.getElementById('video-source');
-        const videoTitle = document.getElementById('video-title');
-        const videoDuration = document.getElementById('video-duration');
+        const audioPlayer = document.getElementById('audio-player');
+        const audioSource = document.getElementById('audio-source');
+        const mediaTitle = document.getElementById('media-title');
+        const mediaDuration = document.getElementById('media-duration');
+        const mediaTypeIndicator = document.getElementById('media-type');
         const playlistList = document.getElementById('playlist-list');
         const refreshButton = document.getElementById('refresh-playlist');
         const pickFolderButton = document.getElementById('pick-folder');
@@ -129,30 +147,40 @@
         
         // Configuration: Set your video directory path here
         const VIDEO_DIRECTORY_PATH = 'Videos/'; // GitHub Pages compatible path
-        // For GitHub Pages, use relative paths without './' prefix
-        // This will work when hosted on: username.github.io/repository-name/
         
         let playlistItems = [];
+        let currentlyPlayingIndex = -1;
         
-        // Function to load videos from Videos directory
+        // Function to stop all media playback
+        const stopAllMedia = () => {
+            videoPlayer.pause();
+            videoPlayer.currentTime = 0;
+            audioPlayer.pause();
+            audioPlayer.currentTime = 0;
+        };
+        
+        // Function to load videos from directory
         const loadVideosFromDirectory = async () => {
             // Clear the playlist first
             playlistItems = [];
+            currentlyPlayingIndex = -1;
             
-            // List of video extensions to look for
+            // List of video and audio extensions to look for
             const videoExtensions = ['.mp4', '.avi', '.mov', '.wmv', '.flv', '.webm', '.mkv', '.m4v', '.3gp'];
+            const audioExtensions = ['.mp3', '.wav', '.ogg'];
             
-            // Function to test if a video file exists and is playable
-            const testVideoFile = (filePath) => {
+            // Function to test if a media file exists and is playable
+            const testMediaFile = (filePath) => {
                 return new Promise((resolve) => {
-                    const testVideo = document.createElement('video');
-                    testVideo.preload = 'metadata';
-                    testVideo.muted = true;
+                    const isAudio = audioExtensions.some(ext => filePath.toLowerCase().endsWith(ext.toLowerCase()));
+                    const testElement = isAudio ? document.createElement('audio') : document.createElement('video');
+                    testElement.preload = 'metadata';
+                    testElement.muted = true;
                     
                     const cleanup = () => {
-                        testVideo.removeEventListener('loadedmetadata', onLoad);
-                        testVideo.removeEventListener('error', onError);
-                        testVideo.src = '';
+                        testElement.removeEventListener('loadedmetadata', onLoad);
+                        testElement.removeEventListener('error', onError);
+                        testElement.src = '';
                     };
                     
                     const onLoad = () => {
@@ -163,7 +191,8 @@
                             title: title,
                             filename: filePath,
                             duration: 'Loading...',
-                            exists: true
+                            exists: true,
+                            type: isAudio ? 'audio' : 'video'
                         });
                     };
                     
@@ -172,15 +201,15 @@
                         resolve({ exists: false });
                     };
                     
-                    testVideo.addEventListener('loadedmetadata', onLoad);
-                    testVideo.addEventListener('error', onError);
+                    testElement.addEventListener('loadedmetadata', onLoad);
+                    testElement.addEventListener('error', onError);
                     
                     setTimeout(() => {
                         cleanup();
                         resolve({ exists: false });
                     }, 1500);
                     
-                    testVideo.src = filePath;
+                    testElement.src = filePath;
                 });
             };
             
@@ -195,17 +224,23 @@
                             const isVideo = videoExtensions.some(ext => 
                                 name.toLowerCase().endsWith(ext.toLowerCase())
                             );
-                            if (isVideo) {
+                            const isAudio = audioExtensions.some(ext => 
+                                name.toLowerCase().endsWith(ext.toLowerCase())
+                            );
+                            
+                            if (isVideo || isAudio) {
                                 try {
                                     const file = await handle.getFile();
                                     const url = URL.createObjectURL(file);
                                     const title = name.replace(/\.[^/.]+$/, "").replace(/_/g, ' ');
+                                    const type = isAudio ? 'audio' : 'video';
                                     
                                     playlistItems.push({
                                         title: title,
                                         filename: url,
                                         duration: 'Loading...',
-                                        exists: true
+                                        exists: true,
+                                        type: type
                                     });
                                 } catch (error) {
                                     console.error('Error reading file:', name, error);
@@ -216,23 +251,12 @@
                     
                     if (playlistItems.length > 0) {
                         playlistItems.sort((a, b) => a.title.localeCompare(b.title));
-                        console.log(`Found ${playlistItems.length} videos in selected directory`);
+                        console.log(`Found ${playlistItems.length} media files in selected directory`);
                         updatePlaylist();
                         return;
                     }
                 } catch (error) {
                     console.error('Error reading selected directory:', error);
-                }
-            }
-            
-            // Method 2: Use File System Access API (modern browsers)
-            if ('showDirectoryPicker' in window) {
-                try {
-                    console.log('Using File System Access API...');
-                    // Note: This requires user interaction, so we'll skip for automatic loading
-                    // but keep the code for manual folder selection if needed
-                } catch (error) {
-                    console.log('File System Access API not available or denied');
                 }
             }
             
@@ -276,18 +300,21 @@
                             let links = doc.querySelectorAll('a[href]');
                             if (links.length === 0) {
                                 // Try alternative selectors for different server types
-                                links = doc.querySelectorAll('a, [href*=".mp4"], [href*=".avi"], [href*=".mov"]');
+                                links = doc.querySelectorAll('a, [href*=".mp3"], [href*=".mp4"], [href*=".avi"], [href*=".mov"]');
                             }
                             
                             const detectedFiles = [];
                             links.forEach(link => {
                                 const href = link.getAttribute('href') || link.textContent || link.innerText;
                                 if (href && href !== '../' && href !== './' && href !== '.' && href !== '..' && href !== '/') {
-                                    // Check if it's a video file
+                                    // Check if it's a video or audio file
                                     const isVideo = videoExtensions.some(ext => 
                                         href.toLowerCase().endsWith(ext.toLowerCase())
                                     );
-                                    if (isVideo) {
+                                    const isAudio = audioExtensions.some(ext => 
+                                        href.toLowerCase().endsWith(ext.toLowerCase())
+                                    );
+                                    if (isVideo || isAudio) {
                                         // Clean the filename and make it GitHub Pages compatible
                                         const cleanFilename = href.split('?')[0].split('#')[0].trim();
                                         if (cleanFilename && !detectedFiles.includes(cleanFilename)) {
@@ -300,7 +327,7 @@
                             // Also try to parse GitHub Pages text content for video files
                             if (detectedFiles.length === 0) {
                                 console.log('Trying text-based detection...');
-                                videoExtensions.forEach(ext => {
+                                [...videoExtensions, ...audioExtensions].forEach(ext => {
                                     // More flexible regex for GitHub Pages
                                     const patterns = [
                                         new RegExp(`[^\\s<>"'\\(\\)]+\\${ext}(?:[^\\w]|$)`, 'gi'),
@@ -323,7 +350,7 @@
                             }
                             
                             if (detectedFiles.length > 0) {
-                                console.log('Found video files via GitHub Pages listing:', detectedFiles);
+                                console.log('Found media files via GitHub Pages listing:', detectedFiles);
                                 
                                 // Test each detected file with proper GitHub Pages path
                                 for (const filename of detectedFiles) {
@@ -336,7 +363,7 @@
                                         filePath = `${testPath}${filename}`; // Relative to test path
                                     }
                                     
-                                    const result = await testVideoFile(filePath);
+                                    const result = await testMediaFile(filePath);
                                     if (result.exists) {
                                         playlistItems.push(result);
                                         // Update UI as we find videos
@@ -345,11 +372,11 @@
                                     }
                                 }
                                 
-                                console.log(`Successfully loaded ${playlistItems.length} videos via GitHub Pages listing`);
+                                console.log(`Successfully loaded ${playlistItems.length} media files via GitHub Pages listing`);
                                 directoryFound = true;
                                 return;
                             } else {
-                                console.log(`Directory found at ${testPath} but no video files detected`);
+                                console.log(`Directory found at ${testPath} but no media files detected`);
                             }
                         }
                     } catch (pathError) {
@@ -380,7 +407,7 @@
             // Your known video files (update these with your actual video filenames)
             const knownFiles = [
                 'Logger00-0b-ab-bd-04-36_2020-07-09_182702_00045_perceptionLog.mp4',
-                'Logger00-0b-ab-bd-04-36_2020-07-09_182702_00045_perceptionLog_height.mp4'
+                'sample.mp3'
             ];
             
             // Test known files with GitHub Pages compatible paths
@@ -389,7 +416,7 @@
                 let foundInThisPath = false;
                 
                 for (const filename of knownFiles) {
-                    const result = await testVideoFile(`${basePath}${filename}`);
+                    const result = await testMediaFile(`${basePath}${filename}`);
                     if (result.exists && !playlistItems.find(item => item.filename === result.filename)) {
                         playlistItems.push(result);
                         updatePlaylist();
@@ -400,12 +427,13 @@
                 
                 // If we found files with this path, continue with pattern detection
                 if (foundInThisPath) {
-                    console.log(`Found videos with GitHub Pages path ${basePath}, using for pattern detection...`);
+                    console.log(`Found media with GitHub Pages path ${basePath}, using for pattern detection...`);
                     
-                    // Common video file patterns for GitHub Pages
+                    // Common media file patterns for GitHub Pages
                     const commonPatterns = [
                         // Basic patterns
                         'video', 'movie', 'clip', 'sample', 'test', 'demo', 'recording',
+                        'audio', 'music', 'sound', 'song',
                         'output', 'final', 'render', 'export', 'capture', 'presentation',
                         
                         // GitHub project patterns
@@ -413,15 +441,16 @@
                         
                         // Numbered variations (limited for GitHub Pages efficiency)
                         ...Array.from({length: 5}, (_, i) => `video${i + 1}`),
+                        ...Array.from({length: 5}, (_, i) => `audio${i + 1}`),
                         ...Array.from({length: 5}, (_, i) => `demo${i + 1}`),
                         ...Array.from({length: 3}, (_, i) => `example${i + 1}`),
                     ];
                     
                     // Test patterns with the working path
                     for (const pattern of commonPatterns) {
-                        for (const ext of ['.mp4', '.webm', '.mov']) { // Most common formats for web
+                        for (const ext of ['.mp3', '.mp4', '.webm', '.mov']) { // Most common formats for web
                             const filename = pattern + ext;
-                            const result = await testVideoFile(`${basePath}${filename}`);
+                            const result = await testMediaFile(`${basePath}${filename}`);
                             if (result.exists && !playlistItems.find(item => item.filename === result.filename)) {
                                 playlistItems.push(result);
                                 playlistItems.sort((a, b) => a.title.localeCompare(b.title));
@@ -436,12 +465,12 @@
                 }
             }
             
-            console.log(`GitHub Pages scan complete. Found ${playlistItems.length} video files.`);
+            console.log(`GitHub Pages scan complete. Found ${playlistItems.length} media files.`);
             
             // If no videos found, show helpful GitHub Pages message
             if (playlistItems.length === 0) {
-                console.log('No videos found. Make sure your Videos folder is in the same directory as index.html');
-                console.log('For GitHub Pages: Ensure videos are pushed to the repository and the site is published');
+                console.log('No media found. Make sure your Videos folder is in the same directory as index.html');
+                console.log('For GitHub Pages: Ensure media files are pushed to the repository and the site is published');
             }
             
             updatePlaylist();
@@ -454,7 +483,7 @@
             if (playlistItems.length === 0) {
                 const noVideosItem = document.createElement('li');
                 noVideosItem.classList.add('playlist-item');
-                noVideosItem.textContent = `No videos found in directory: ${VIDEO_DIRECTORY_PATH}`;
+                noVideosItem.textContent = `No media found in directory: ${VIDEO_DIRECTORY_PATH}`;
                 noVideosItem.style.fontStyle = 'italic';
                 noVideosItem.style.color = '#666';
                 playlistList.appendChild(noVideosItem);
@@ -464,9 +493,38 @@
             playlistItems.forEach((item, index) => {
                 const playlistItem = document.createElement('li');
                 playlistItem.classList.add('playlist-item');
+                if (item.type === 'audio') {
+                    playlistItem.classList.add('audio');
+                }
+                if (index === currentlyPlayingIndex) {
+                    playlistItem.classList.add('active');
+                }
                 playlistItem.textContent = `${item.title} - ${item.duration}`;
-                playlistItem.addEventListener('click', () => {
-                    loadVideo(item.filename, item.title);
+                playlistItem.addEventListener('click', async () => {
+                    // Stop currently playing media
+                    stopAllMedia();
+                    
+                    // Highlight the selected item
+                    document.querySelectorAll('.playlist-item').forEach(el => {
+                        el.classList.remove('active');
+                    });
+                    playlistItem.classList.add('active');
+                    currentlyPlayingIndex = index;
+                    
+                    // Load and play the selected media
+                    await loadMedia(item.filename, item.title, item.type);
+                    
+                    // Auto-play the media after loading
+                    try {
+                        if (item.type === 'video') {
+                            await videoPlayer.play();
+                        } else {
+                            await audioPlayer.play();
+                        }
+                    } catch (error) {
+                        console.log('Auto-play failed:', error);
+                        // Show play button to let user start manually
+                    }
                 });
                 playlistList.appendChild(playlistItem);
             });
@@ -484,6 +542,7 @@
                     
                     // Clear current playlist and reload
                     playlistItems = [];
+                    currentlyPlayingIndex = -1;
                     updatePlaylist();
                     
                     // Load videos from selected directory
@@ -512,7 +571,11 @@
             // Clear current playlist and show loading state
             const oldPlaylistLength = playlistItems.length;
             playlistItems = [];
+            currentlyPlayingIndex = -1;
             updatePlaylist(); // Show empty state immediately
+            
+            // Stop any currently playing media
+            stopAllMedia();
             
             // Reload videos
             await loadVideosFromDirectory();
@@ -525,47 +588,105 @@
                 
                 // If current video is no longer available, load the first available video
                 if (playlistItems.length > 0) {
-                    const currentVideoSrc = videoSource.src;
-                    const currentVideoExists = playlistItems.some(item => 
-                        currentVideoSrc.includes(item.filename.split('/').pop())
+                    const currentMediaSrc = videoSource.src || audioSource.src;
+                    const currentMediaExists = playlistItems.some(item => 
+                        currentMediaSrc.includes(item.filename.split('/').pop())
                     );
                     
-                    if (!currentVideoExists) {
-                        console.log('Current video no longer exists, loading first available video');
-                        loadVideo(playlistItems[0].filename, playlistItems[0].title);
+                    if (!currentMediaExists) {
+                        console.log('Current media no longer exists, loading first available media');
+                        currentlyPlayingIndex = 0;
+                        loadMedia(playlistItems[0].filename, playlistItems[0].title, playlistItems[0].type)
+                            .then(() => {
+                                if (playlistItems[0].type === 'video') {
+                                    videoPlayer.play();
+                                } else {
+                                    audioPlayer.play();
+                                }
+                            });
                     }
                 }
             }, 500);
         });
         
-        videoPlayer.addEventListener('loadedmetadata', () => {
-            const minutes = Math.floor(videoPlayer.duration / 60);
-            const seconds = Math.floor(videoPlayer.duration % 60);
-            videoDuration.textContent = `Duration: ${minutes}:${seconds.toString().padStart(2, '0')}`;
-        });
+        // Function to handle metadata loading for both video and audio
+        const handleMetadataLoad = (mediaElement) => {
+            const minutes = Math.floor(mediaElement.duration / 60);
+            const seconds = Math.floor(mediaElement.duration % 60);
+            mediaDuration.textContent = `Duration: ${minutes}:${seconds.toString().padStart(2, '0')}`;
+            
+            // Update the corresponding playlist item duration
+            if (currentlyPlayingIndex >= 0 && currentlyPlayingIndex < playlistItems.length) {
+                playlistItems[currentlyPlayingIndex].duration = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+                updatePlaylist();
+            }
+        };
         
-        // Function to load a specific video
-        const loadVideo = (videoPath, title) => {
-            console.log('Loading video:', videoPath);
-            videoSource.src = videoPath;
-            videoPlayer.load();
-            videoTitle.textContent = title;
-            
-            // Add error handling
-            videoPlayer.addEventListener('error', (e) => {
-                console.error('Video loading error:', e);
-                videoTitle.textContent = title + ' (Error loading video)';
-            });
-            
-            videoPlayer.addEventListener('canplay', () => {
-                console.log('Video ready to play:', videoPath);
+        videoPlayer.addEventListener('loadedmetadata', () => handleMetadataLoad(videoPlayer));
+        audioPlayer.addEventListener('loadedmetadata', () => handleMetadataLoad(audioPlayer));
+        
+        // Function to load a specific media file
+        const loadMedia = (mediaPath, title, type) => {
+            return new Promise((resolve) => {
+                console.log(`Loading ${type}:`, mediaPath);
+                
+                // Hide both players first
+                videoPlayer.style.display = 'none';
+                audioPlayer.style.display = 'none';
+                
+                if (type === 'video') {
+                    videoSource.src = mediaPath;
+                    videoPlayer.load();
+                    videoPlayer.style.display = 'block';
+                    
+                    const onLoaded = () => {
+                        videoPlayer.removeEventListener('canplay', onLoaded);
+                        resolve();
+                    };
+                    
+                    videoPlayer.addEventListener('canplay', onLoaded);
+                    
+                    videoPlayer.addEventListener('error', (e) => {
+                        console.error('Video loading error:', e);
+                        mediaTitle.textContent = title + ' (Error loading video)';
+                        resolve();
+                    });
+                } else {
+                    audioSource.src = mediaPath;
+                    audioPlayer.load();
+                    audioPlayer.style.display = 'block';
+                    
+                    const onLoaded = () => {
+                        audioPlayer.removeEventListener('canplay', onLoaded);
+                        resolve();
+                    };
+                    
+                    audioPlayer.addEventListener('canplay', onLoaded);
+                    
+                    audioPlayer.addEventListener('error', (e) => {
+                        console.error('Audio loading error:', e);
+                        mediaTitle.textContent = title + ' (Error loading audio)';
+                        resolve();
+                    });
+                }
+                
+                mediaTitle.textContent = title;
+                mediaTypeIndicator.textContent = `Type: ${type}`;
             });
         };
         
-        // load default video on page load
-        const loadDefaultVideo = () => {
+        // load default media on page load
+        const loadDefaultMedia = () => {
             if (playlistItems.length > 0) {
-                loadVideo(playlistItems[0].filename, playlistItems[0].title);
+                currentlyPlayingIndex = 0;
+                loadMedia(playlistItems[0].filename, playlistItems[0].title, playlistItems[0].type)
+                    .then(() => {
+                        if (playlistItems[0].type === 'video') {
+                            videoPlayer.play();
+                        } else {
+                            audioPlayer.play();
+                        }
+                    });
             }
         };
         
@@ -576,7 +697,7 @@
             
             // Small delay to ensure playlist is populated before loading default video
             setTimeout(() => {
-                loadDefaultVideo();
+                loadDefaultMedia();
             }, 300);
         };
         
