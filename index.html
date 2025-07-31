@@ -1,0 +1,587 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tube</title>
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/css/bootstrap.min.css">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap">
+    <script src="https://code.jquery.com/jquery-3.2.1.slim.min.js"></script>
+    <script src="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/js/bootstrap.min.js"></script>
+    <style>
+        body {
+            font-family: 'Poppins', sans-serif;
+        }
+        .search-bar {
+            background-color: #f0f0f0;
+            padding: 10px;
+            border-bottom: 1px solid #ddd;
+            display: flex;
+            justify-content: center;
+        }
+        .search-input {
+            width: 50%;
+            padding: 10px;
+            border: none;
+            border-radius: 10px 0 0 10px;
+        }
+        .search-button {
+            padding: 10px;
+            border: none;
+            border-radius: 0 10px 10px 0;
+            background-color: #4CAF50;
+            color: #fff;
+            cursor: pointer;
+        }
+        .container {
+            display: flex;
+            justify-content: space-between;
+            padding: 20px;
+        }
+        .player {
+            width: 60%;
+            background-color: #fff;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 10px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+        }
+        .playlist {
+            width: 30%;
+            background-color: #fff;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 10px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+        }
+        .video-player {
+            width: 100%;
+            height: 400px;
+        }
+        .video-metadata {
+            margin-top: 20px;
+        }
+        .video-controls {
+            margin-top: 20px;
+        }
+        .btn {
+            border-radius: 10px;
+            font-size: 18px;
+            font-weight: 500;
+            padding: 10px 20px;
+            background-color: #4CAF50;
+            border: none;
+            color: #fff;
+            cursor: pointer;
+        }
+        .btn:hover {
+            background-color: #3e8e41;
+        }
+        .playlist-item {
+            padding: 10px;
+            border-bottom: 1px solid #ddd;
+            cursor: pointer;
+        }
+        .playlist-item:hover {
+            background-color: #f0f0f0;
+        }
+    </style>
+</head>
+<body>
+    <div class="search-bar">
+        <input type="text" class="search-input" placeholder="Search videos...">
+        <button class="search-button">Search</button>
+    </div>
+    <div class="container">
+        <div class="player">
+            <video id="video-player" class="video-player" controls>
+                <source id="video-source" type="video/mp4">
+            </video>
+            <div class="video-metadata">
+                <h5 id="video-title">Video Title</h5>
+                <p id="video-duration">Duration: 00:00</p>
+            </div>
+        </div>
+        <div class="playlist">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                <h5 style="margin: 0;">Playlist</h5>
+                <div>
+                    <button id="pick-folder" class="btn" style="padding: 5px 10px; font-size: 12px; margin-right: 5px;">Pick Folder</button>
+                    <button id="refresh-playlist" class="btn" style="padding: 5px 10px; font-size: 14px;">Refresh</button>
+                </div>
+            </div>
+            <ul id="playlist-list">
+                <!-- playlist items will be generated here -->
+            </ul>
+        </div>
+    </div>
+    <script>
+        const videoPlayer = document.getElementById('video-player');
+        const videoSource = document.getElementById('video-source');
+        const videoTitle = document.getElementById('video-title');
+        const videoDuration = document.getElementById('video-duration');
+        const playlistList = document.getElementById('playlist-list');
+        const refreshButton = document.getElementById('refresh-playlist');
+        const pickFolderButton = document.getElementById('pick-folder');
+        
+        // Store the selected directory handle
+        let selectedDirectoryHandle = null;
+        
+        // Configuration: Set your video directory path here
+        const VIDEO_DIRECTORY_PATH = 'Videos/'; // GitHub Pages compatible path
+        // For GitHub Pages, use relative paths without './' prefix
+        // This will work when hosted on: username.github.io/repository-name/
+        
+        let playlistItems = [];
+        
+        // Function to load videos from Videos directory
+        const loadVideosFromDirectory = async () => {
+            // Clear the playlist first
+            playlistItems = [];
+            
+            // List of video extensions to look for
+            const videoExtensions = ['.mp4', '.avi', '.mov', '.wmv', '.flv', '.webm', '.mkv', '.m4v', '.3gp'];
+            
+            // Function to test if a video file exists and is playable
+            const testVideoFile = (filePath) => {
+                return new Promise((resolve) => {
+                    const testVideo = document.createElement('video');
+                    testVideo.preload = 'metadata';
+                    testVideo.muted = true;
+                    
+                    const cleanup = () => {
+                        testVideo.removeEventListener('loadedmetadata', onLoad);
+                        testVideo.removeEventListener('error', onError);
+                        testVideo.src = '';
+                    };
+                    
+                    const onLoad = () => {
+                        cleanup();
+                        const filename = filePath.split('/').pop();
+                        const title = filename.replace(/\.[^/.]+$/, "").replace(/_/g, ' ');
+                        resolve({
+                            title: title,
+                            filename: filePath,
+                            duration: 'Loading...',
+                            exists: true
+                        });
+                    };
+                    
+                    const onError = () => {
+                        cleanup();
+                        resolve({ exists: false });
+                    };
+                    
+                    testVideo.addEventListener('loadedmetadata', onLoad);
+                    testVideo.addEventListener('error', onError);
+                    
+                    setTimeout(() => {
+                        cleanup();
+                        resolve({ exists: false });
+                    }, 1500);
+                    
+                    testVideo.src = filePath;
+                });
+            };
+            
+            // Method 1: Use selected directory handle if available
+            if (selectedDirectoryHandle) {
+                try {
+                    console.log('Using selected directory handle...');
+                    const files = [];
+                    
+                    for await (const [name, handle] of selectedDirectoryHandle.entries()) {
+                        if (handle.kind === 'file') {
+                            const isVideo = videoExtensions.some(ext => 
+                                name.toLowerCase().endsWith(ext.toLowerCase())
+                            );
+                            if (isVideo) {
+                                try {
+                                    const file = await handle.getFile();
+                                    const url = URL.createObjectURL(file);
+                                    const title = name.replace(/\.[^/.]+$/, "").replace(/_/g, ' ');
+                                    
+                                    playlistItems.push({
+                                        title: title,
+                                        filename: url,
+                                        duration: 'Loading...',
+                                        exists: true
+                                    });
+                                } catch (error) {
+                                    console.error('Error reading file:', name, error);
+                                }
+                            }
+                        }
+                    }
+                    
+                    if (playlistItems.length > 0) {
+                        playlistItems.sort((a, b) => a.title.localeCompare(b.title));
+                        console.log(`Found ${playlistItems.length} videos in selected directory`);
+                        updatePlaylist();
+                        return;
+                    }
+                } catch (error) {
+                    console.error('Error reading selected directory:', error);
+                }
+            }
+            
+            // Method 2: Use File System Access API (modern browsers)
+            if ('showDirectoryPicker' in window) {
+                try {
+                    console.log('Using File System Access API...');
+                    // Note: This requires user interaction, so we'll skip for automatic loading
+                    // but keep the code for manual folder selection if needed
+                } catch (error) {
+                    console.log('File System Access API not available or denied');
+                }
+            }
+            
+            // Method 2: Try to read directory listing from local server
+            try {
+                console.log(`Attempting to read directory: ${VIDEO_DIRECTORY_PATH}`);
+                
+                // GitHub Pages compatible path variations
+                const pathVariations = [
+                    'Videos/',                    // Standard GitHub Pages path
+                    './Videos/',                  // Explicit relative path
+                    VIDEO_DIRECTORY_PATH,         // User configured path
+                    window.location.pathname.split('/').slice(0, -1).join('/') + '/Videos/', // Dynamic base path
+                    'videos/',                    // Lowercase variant
+                    './videos/',                  // Lowercase with relative
+                ];
+                
+                let directoryFound = false;
+                
+                for (const testPath of pathVariations) {
+                    try {
+                        console.log(`Testing GitHub Pages path: ${testPath}`);
+                        const response = await fetch(testPath, {
+                            method: 'GET',
+                            cache: 'no-cache',
+                            headers: {
+                                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+                            }
+                        });
+                        
+                        if (response.ok) {
+                            const text = await response.text();
+                            console.log(`Directory found at: ${testPath}`);
+                            console.log('Response preview:', text.substring(0, 200));
+                            
+                            // Parse GitHub Pages directory listing
+                            const parser = new DOMParser();
+                            const doc = parser.parseFromString(text, 'text/html');
+                            
+                            // GitHub Pages uses different HTML structures
+                            let links = doc.querySelectorAll('a[href]');
+                            if (links.length === 0) {
+                                // Try alternative selectors for different server types
+                                links = doc.querySelectorAll('a, [href*=".mp4"], [href*=".avi"], [href*=".mov"]');
+                            }
+                            
+                            const detectedFiles = [];
+                            links.forEach(link => {
+                                const href = link.getAttribute('href') || link.textContent || link.innerText;
+                                if (href && href !== '../' && href !== './' && href !== '.' && href !== '..' && href !== '/') {
+                                    // Check if it's a video file
+                                    const isVideo = videoExtensions.some(ext => 
+                                        href.toLowerCase().endsWith(ext.toLowerCase())
+                                    );
+                                    if (isVideo) {
+                                        // Clean the filename and make it GitHub Pages compatible
+                                        const cleanFilename = href.split('?')[0].split('#')[0].trim();
+                                        if (cleanFilename && !detectedFiles.includes(cleanFilename)) {
+                                            detectedFiles.push(cleanFilename);
+                                        }
+                                    }
+                                }
+                            });
+                            
+                            // Also try to parse GitHub Pages text content for video files
+                            if (detectedFiles.length === 0) {
+                                console.log('Trying text-based detection...');
+                                videoExtensions.forEach(ext => {
+                                    // More flexible regex for GitHub Pages
+                                    const patterns = [
+                                        new RegExp(`[^\\s<>"'\\(\\)]+\\${ext}(?:[^\\w]|$)`, 'gi'),
+                                        new RegExp(`["']([^"']*\\${ext})["']`, 'gi'),
+                                        new RegExp(`href\\s*=\\s*["']?([^"'\\s>]*\\${ext})`, 'gi')
+                                    ];
+                                    
+                                    patterns.forEach(regex => {
+                                        const matches = text.match(regex);
+                                        if (matches) {
+                                            matches.forEach(match => {
+                                                const cleanMatch = match.replace(/['">\s]/g, '').trim();
+                                                if (cleanMatch.endsWith(ext.toLowerCase()) && !detectedFiles.includes(cleanMatch)) {
+                                                    detectedFiles.push(cleanMatch);
+                                                }
+                                            });
+                                        }
+                                    });
+                                });
+                            }
+                            
+                            if (detectedFiles.length > 0) {
+                                console.log('Found video files via GitHub Pages listing:', detectedFiles);
+                                
+                                // Test each detected file with proper GitHub Pages path
+                                for (const filename of detectedFiles) {
+                                    let filePath;
+                                    if (filename.startsWith('http') || filename.startsWith('/')) {
+                                        filePath = filename; // Absolute URL
+                                    } else if (filename.includes(testPath.replace('./', ''))) {
+                                        filePath = filename; // Already includes path
+                                    } else {
+                                        filePath = `${testPath}${filename}`; // Relative to test path
+                                    }
+                                    
+                                    const result = await testVideoFile(filePath);
+                                    if (result.exists) {
+                                        playlistItems.push(result);
+                                        // Update UI as we find videos
+                                        playlistItems.sort((a, b) => a.title.localeCompare(b.title));
+                                        updatePlaylist();
+                                    }
+                                }
+                                
+                                console.log(`Successfully loaded ${playlistItems.length} videos via GitHub Pages listing`);
+                                directoryFound = true;
+                                return;
+                            } else {
+                                console.log(`Directory found at ${testPath} but no video files detected`);
+                            }
+                        }
+                    } catch (pathError) {
+                        console.log(`GitHub Pages path ${testPath} failed:`, pathError.message);
+                        continue;
+                    }
+                }
+                
+                if (!directoryFound) {
+                    console.log('No accessible directory found in GitHub Pages compatible paths');
+                }
+                
+            } catch (error) {
+                console.log('GitHub Pages directory listing failed:', error.message);
+            }
+            
+            // Method 3: Direct file testing for GitHub Pages compatibility
+            console.log(`Using GitHub Pages compatible direct file detection...`);
+            
+            // GitHub Pages compatible path variations
+            const pathVariations = [
+                'Videos/',           // Standard path for GitHub Pages
+                './Videos/',         // Explicit relative
+                'videos/',           // Lowercase (some servers are case-sensitive)
+                '',                  // Root directory (if videos are in root)
+            ];
+            
+            // Your known video files (update these with your actual video filenames)
+            const knownFiles = [
+                'Logger00-0b-ab-bd-04-36_2020-07-09_182702_00045_perceptionLog.mp4',
+                'Logger00-0b-ab-bd-04-36_2020-07-09_182702_00045_perceptionLog_height.mp4'
+            ];
+            
+            // Test known files with GitHub Pages compatible paths
+            for (const basePath of pathVariations) {
+                console.log(`Testing known files with GitHub Pages path: ${basePath}`);
+                let foundInThisPath = false;
+                
+                for (const filename of knownFiles) {
+                    const result = await testVideoFile(`${basePath}${filename}`);
+                    if (result.exists && !playlistItems.find(item => item.filename === result.filename)) {
+                        playlistItems.push(result);
+                        updatePlaylist();
+                        foundInThisPath = true;
+                        console.log(`Found known file: ${basePath}${filename}`);
+                    }
+                }
+                
+                // If we found files with this path, continue with pattern detection
+                if (foundInThisPath) {
+                    console.log(`Found videos with GitHub Pages path ${basePath}, using for pattern detection...`);
+                    
+                    // Common video file patterns for GitHub Pages
+                    const commonPatterns = [
+                        // Basic patterns
+                        'video', 'movie', 'clip', 'sample', 'test', 'demo', 'recording',
+                        'output', 'final', 'render', 'export', 'capture', 'presentation',
+                        
+                        // GitHub project patterns
+                        'README_video', 'demo_video', 'example', 'showcase',
+                        
+                        // Numbered variations (limited for GitHub Pages efficiency)
+                        ...Array.from({length: 5}, (_, i) => `video${i + 1}`),
+                        ...Array.from({length: 5}, (_, i) => `demo${i + 1}`),
+                        ...Array.from({length: 3}, (_, i) => `example${i + 1}`),
+                    ];
+                    
+                    // Test patterns with the working path
+                    for (const pattern of commonPatterns) {
+                        for (const ext of ['.mp4', '.webm', '.mov']) { // Most common formats for web
+                            const filename = pattern + ext;
+                            const result = await testVideoFile(`${basePath}${filename}`);
+                            if (result.exists && !playlistItems.find(item => item.filename === result.filename)) {
+                                playlistItems.push(result);
+                                playlistItems.sort((a, b) => a.title.localeCompare(b.title));
+                                updatePlaylist();
+                            }
+                        }
+                        
+                        // Smaller delay for GitHub Pages
+                        await new Promise(resolve => setTimeout(resolve, 20));
+                    }
+                    break; // Stop trying other paths if we found videos
+                }
+            }
+            
+            console.log(`GitHub Pages scan complete. Found ${playlistItems.length} video files.`);
+            
+            // If no videos found, show helpful GitHub Pages message
+            if (playlistItems.length === 0) {
+                console.log('No videos found. Make sure your Videos folder is in the same directory as index.html');
+                console.log('For GitHub Pages: Ensure videos are pushed to the repository and the site is published');
+            }
+            
+            updatePlaylist();
+        };
+        
+        // Function to update the playlist UI
+        const updatePlaylist = () => {
+            playlistList.innerHTML = ''; // Clear existing items
+            
+            if (playlistItems.length === 0) {
+                const noVideosItem = document.createElement('li');
+                noVideosItem.classList.add('playlist-item');
+                noVideosItem.textContent = `No videos found in directory: ${VIDEO_DIRECTORY_PATH}`;
+                noVideosItem.style.fontStyle = 'italic';
+                noVideosItem.style.color = '#666';
+                playlistList.appendChild(noVideosItem);
+                return;
+            }
+            
+            playlistItems.forEach((item, index) => {
+                const playlistItem = document.createElement('li');
+                playlistItem.classList.add('playlist-item');
+                playlistItem.textContent = `${item.title} - ${item.duration}`;
+                playlistItem.addEventListener('click', () => {
+                    loadVideo(item.filename, item.title);
+                });
+                playlistList.appendChild(playlistItem);
+            });
+        };
+        
+        // Add folder picker functionality
+        pickFolderButton.addEventListener('click', async () => {
+            if ('showDirectoryPicker' in window) {
+                try {
+                    pickFolderButton.textContent = 'Selecting...';
+                    pickFolderButton.disabled = true;
+                    
+                    selectedDirectoryHandle = await window.showDirectoryPicker();
+                    console.log('Directory selected:', selectedDirectoryHandle.name);
+                    
+                    // Clear current playlist and reload
+                    playlistItems = [];
+                    updatePlaylist();
+                    
+                    // Load videos from selected directory
+                    await loadVideosFromDirectory();
+                    
+                    pickFolderButton.textContent = 'Pick Folder';
+                    pickFolderButton.disabled = false;
+                } catch (error) {
+                    console.log('Directory picker cancelled or failed:', error);
+                    pickFolderButton.textContent = 'Pick Folder';
+                    pickFolderButton.disabled = false;
+                }
+            } else {
+                alert('File System Access API not supported in this browser. Please use Chrome, Edge, or another modern browser.');
+            }
+        });
+        
+        // Add refresh button functionality
+        refreshButton.addEventListener('click', async () => {
+            console.log('Refreshing playlist...');
+            
+            // Show visual feedback immediately
+            refreshButton.textContent = 'Scanning...';
+            refreshButton.disabled = true;
+            
+            // Clear current playlist and show loading state
+            const oldPlaylistLength = playlistItems.length;
+            playlistItems = [];
+            updatePlaylist(); // Show empty state immediately
+            
+            // Reload videos
+            await loadVideosFromDirectory();
+            
+            // Reset button and show results
+            setTimeout(() => {
+                refreshButton.textContent = 'Refresh';
+                refreshButton.disabled = false;
+                console.log(`Playlist updated: ${oldPlaylistLength} → ${playlistItems.length} videos`);
+                
+                // If current video is no longer available, load the first available video
+                if (playlistItems.length > 0) {
+                    const currentVideoSrc = videoSource.src;
+                    const currentVideoExists = playlistItems.some(item => 
+                        currentVideoSrc.includes(item.filename.split('/').pop())
+                    );
+                    
+                    if (!currentVideoExists) {
+                        console.log('Current video no longer exists, loading first available video');
+                        loadVideo(playlistItems[0].filename, playlistItems[0].title);
+                    }
+                }
+            }, 500);
+        });
+        
+        videoPlayer.addEventListener('loadedmetadata', () => {
+            const minutes = Math.floor(videoPlayer.duration / 60);
+            const seconds = Math.floor(videoPlayer.duration % 60);
+            videoDuration.textContent = `Duration: ${minutes}:${seconds.toString().padStart(2, '0')}`;
+        });
+        
+        // Function to load a specific video
+        const loadVideo = (videoPath, title) => {
+            console.log('Loading video:', videoPath);
+            videoSource.src = videoPath;
+            videoPlayer.load();
+            videoTitle.textContent = title;
+            
+            // Add error handling
+            videoPlayer.addEventListener('error', (e) => {
+                console.error('Video loading error:', e);
+                videoTitle.textContent = title + ' (Error loading video)';
+            });
+            
+            videoPlayer.addEventListener('canplay', () => {
+                console.log('Video ready to play:', videoPath);
+            });
+        };
+        
+        // load default video on page load
+        const loadDefaultVideo = () => {
+            if (playlistItems.length > 0) {
+                loadVideo(playlistItems[0].filename, playlistItems[0].title);
+            }
+        };
+        
+        // Initialize the application
+        const initializeApp = async () => {
+            console.log('Initializing media player...');
+            await loadVideosFromDirectory();
+            
+            // Small delay to ensure playlist is populated before loading default video
+            setTimeout(() => {
+                loadDefaultVideo();
+            }, 300);
+        };
+        
+        // Start the application
+        initializeApp();
+    </script>
+</body>
+</html>
